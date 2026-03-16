@@ -70,6 +70,9 @@ class AutonomousController extends ChangeNotifier {
   StreamSubscription<Uint8List>? _audioSubscription;
   final List<int> _pendingAudioBytes = <int>[];
   bool _assistantAudioPlaying = false;
+  final List<int> _streamingAudioBytes = <int>[];
+  Timer? _streamingPlaybackTimer;
+  bool _streamingAudioPlaying = false;
   final Map<String, _AssistantAudioClip> _assistantAudioByMessageId =
       <String, _AssistantAudioClip>{};
   final List<_AssistantAudioClip> _pendingAssistantAudioClips =
@@ -198,6 +201,10 @@ class AutonomousController extends ChangeNotifier {
       _assistantAudioByMessageId.clear();
     }
     _pendingAssistantAudioClips.clear();
+    _streamingAudioBytes.clear();
+    _streamingPlaybackTimer?.cancel();
+    _streamingPlaybackTimer = null;
+    _streamingAudioPlaying = false;
     backendRecentEvents = <Map<String, dynamic>>[];
     nativeMicChunkCount = 0;
     uploadedAudioFrameCount = 0;
@@ -335,6 +342,10 @@ class AutonomousController extends ChangeNotifier {
       }
     } finally {
       _pendingAssistantAudioClips.clear();
+      _streamingAudioBytes.clear();
+      _streamingPlaybackTimer?.cancel();
+      _streamingPlaybackTimer = null;
+      _streamingAudioPlaying = false;
       liveConnected = false;
       paused = false;
       micStreaming = false;
@@ -414,11 +425,55 @@ class AutonomousController extends ChangeNotifier {
       case 'autonomous_prompt':
         activePrompt = AutonomousPromptState.fromMap(payload);
         break;
+      case 'autonomous_prompt_translation':
+        final AutonomousPromptState translatedPrompt =
+            AutonomousPromptState.fromMap(payload);
+        final AutonomousPromptState? currentPrompt = activePrompt;
+        if (currentPrompt != null &&
+            currentPrompt.toolCallId.isNotEmpty &&
+            currentPrompt.toolCallId == translatedPrompt.toolCallId) {
+          activePrompt = currentPrompt.copyWith(
+            question: translatedPrompt.question,
+            options: translatedPrompt.options,
+            allowFreeText: translatedPrompt.allowFreeText,
+            context: translatedPrompt.context,
+          );
+        }
+        break;
+      case 'assistant_audio_chunk':
+        final String chunkBase64 = payload['audio_base64'] as String? ?? '';
+        if (chunkBase64.isNotEmpty && !paused) {
+          final Uint8List pcmBytes = base64Decode(chunkBase64);
+          _streamingAudioBytes.addAll(pcmBytes);
+          // Start playback after accumulating ~0.3s of audio (24kHz, 16-bit mono = 48000 bytes/s)
+          if (!_streamingAudioPlaying && _streamingAudioBytes.length >= 14400) {
+            _triggerStreamingPlayback();
+          }
+          // Fallback timer: if chunks arrive slowly, play after 200ms
+          _streamingPlaybackTimer?.cancel();
+          if (!_streamingAudioPlaying) {
+            _streamingPlaybackTimer = Timer(
+              const Duration(milliseconds: 200),
+              _triggerStreamingPlayback,
+            );
+          }
+        }
+        break;
+      case 'assistant_audio_end':
+        _streamingPlaybackTimer?.cancel();
+        _streamingPlaybackTimer = null;
+        // If streaming playback hasn't started yet, play whatever we have
+        if (!_streamingAudioPlaying && _streamingAudioBytes.isNotEmpty) {
+          _triggerStreamingPlayback();
+        }
+        // Don't clear _streamingAudioBytes here; let playback finish, then clear
+        break;
       case 'assistant_audio':
         final String audioBase64 = payload['audio_base64'] as String? ?? '';
         final String mimeType = payload['mime_type'] as String? ?? 'audio/wav';
         final String linkedMessageId =
             payload['for_message_id'] as String? ?? '';
+        final bool isReplay = payload['is_replay'] as bool? ?? false;
         if (audioBase64.isNotEmpty) {
           final _AssistantAudioClip clip = _AssistantAudioClip(
             audioBase64: audioBase64,
@@ -440,7 +495,8 @@ class AutonomousController extends ChangeNotifier {
             }
           }
         }
-        if (audioBase64.isNotEmpty && !paused) {
+        // Only auto-play if NOT a replay-only message (streaming handled by assistant_audio_chunk)
+        if (audioBase64.isNotEmpty && !paused && !isReplay) {
           unawaited(
             _playAssistantAudio(
               audioBase64: audioBase64,
@@ -539,6 +595,40 @@ class AutonomousController extends ChangeNotifier {
     diagnostics = <DiagnosticEvent>[event, ...diagnostics].take(100).toList();
     if (!_testing) {
       await _database.insertDiagnostic(event);
+    }
+  }
+
+  void _triggerStreamingPlayback() {
+    if (_streamingAudioPlaying || _streamingAudioBytes.isEmpty) return;
+    _streamingAudioPlaying = true;
+    _streamingPlaybackTimer?.cancel();
+    _streamingPlaybackTimer = null;
+    final Uint8List pcmBytes = Uint8List.fromList(_streamingAudioBytes);
+    _streamingAudioBytes.clear();
+    unawaited(_playStreamingAudio(pcmBytes));
+  }
+
+  Future<void> _playStreamingAudio(Uint8List pcmBytes) async {
+    try {
+      // Stop any file-based playback that might be running
+      if (_assistantAudioPlaying) {
+        await _audioPlaybackService.stopActivePlayback();
+        _assistantAudioPlaying = false;
+      }
+      await _audioPlaybackService.playPcmBytes(pcmBytes);
+      // If more bytes accumulated while we were playing, play them too
+      if (_streamingAudioBytes.isNotEmpty) {
+        final Uint8List nextChunk = Uint8List.fromList(_streamingAudioBytes);
+        _streamingAudioBytes.clear();
+        await _audioPlaybackService.playPcmBytes(nextChunk);
+      }
+    } catch (error) {
+      await _recordDiagnostic(
+        'streaming_audio_playback_error',
+        <String, dynamic>{'message': error.toString()},
+      );
+    } finally {
+      _streamingAudioPlaying = false;
     }
   }
 
@@ -785,11 +875,11 @@ class AutonomousController extends ChangeNotifier {
       return;
     }
     _pendingAudioBytes.addAll(chunk);
-    while (_pendingAudioBytes.length >= 3200) {
+    while (_pendingAudioBytes.length >= 1600) {
       final Uint8List frame = Uint8List.fromList(
-        _pendingAudioBytes.sublist(0, 3200),
+        _pendingAudioBytes.sublist(0, 1600),
       );
-      _pendingAudioBytes.removeRange(0, 3200);
+      _pendingAudioBytes.removeRange(0, 1600);
       final bool sent = _sessionService.sendAudioChunk(frame);
       if (sent) {
         uploadedAudioFrameCount += 1;

@@ -30,10 +30,7 @@ class AutonomousConversationMessage {
 }
 
 class AutonomousPromptOption {
-  const AutonomousPromptOption({
-    required this.label,
-    required this.value,
-  });
+  const AutonomousPromptOption({required this.label, required this.value});
 
   final String label;
   final String value;
@@ -60,6 +57,22 @@ class AutonomousPromptState {
   final List<AutonomousPromptOption> options;
   final bool allowFreeText;
   final String context;
+
+  AutonomousPromptState copyWith({
+    String? toolCallId,
+    String? question,
+    List<AutonomousPromptOption>? options,
+    bool? allowFreeText,
+    String? context,
+  }) {
+    return AutonomousPromptState(
+      toolCallId: toolCallId ?? this.toolCallId,
+      question: question ?? this.question,
+      options: options ?? this.options,
+      allowFreeText: allowFreeText ?? this.allowFreeText,
+      context: context ?? this.context,
+    );
+  }
 
   factory AutonomousPromptState.fromMap(Map<String, dynamic> map) {
     final List<dynamic> rawOptions =

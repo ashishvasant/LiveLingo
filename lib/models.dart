@@ -66,8 +66,7 @@ class AppSettings {
 
   factory AppSettings.defaults() {
     return AppSettings(
-      backendUrl:
-          'YOUR_BACKEND_URL',
+      backendUrl: 'YOUR_BACKEND_URL',
       authToken: '',
       userLanguage: 'English',
       targetLanguage: 'Kannada',

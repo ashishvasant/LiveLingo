@@ -106,14 +106,6 @@ class LiveSessionService {
     });
   }
 
-  void sendDeviceLocationHint(double lat, double lng) {
-    sendJson(<String, Object?>{
-      'type': 'device_location_hint',
-      'lat': lat,
-      'lng': lng,
-    });
-  }
-
   void sendCameraFrame({required String base64Jpeg, required int frameSeq}) {
     sendJson(<String, Object?>{
       'type': 'camera_frame',
