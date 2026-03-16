@@ -51,3 +51,8 @@ app.*.map.json
 
 # Build artifacts
 /artifacts/
+
+# Local dev notes (keep README.md)
+/ARCHITECTURE.md
+/BACKUP_STATE_*.md
+/GEMINI_LIVE_WORKFLOW.md
