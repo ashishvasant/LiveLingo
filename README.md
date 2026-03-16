@@ -70,41 +70,113 @@ Phone mic → PCM16 → WebSocket → FastAPI backend
 | Backend | FastAPI on Google Cloud Run |
 | Frontend | Flutter (Android / iOS / Web) |
 
+## Project Structure
+
+```
+LiveLingo/
+├── backend/              # FastAPI + Google ADK backend
+│   ├── Dockerfile        # Cloud Run deployment container
+│   ├── main.py           # FastAPI app entry point
+│   ├── requirements.txt  # Python dependencies
+│   ├── .env.example      # Environment variable template
+│   ├── live_agent/       # Gemini Live API agent logic
+│   │   └── agent.py      # ADK live agent session
+│   └── server/           # WebSocket handler and models
+│       ├── models.py
+│       └── websocket_handler.py
+├── lib/                  # Flutter frontend (Dart)
+├── android/              # Android platform config
+├── ios/                  # iOS platform config
+├── web/                  # Web platform config
+└── scripts/              # Repo hygiene validation scripts
+```
+
 ## Getting Started
 
 ### Prerequisites
 
 - Flutter SDK (3.x+)
-- A Firebase project with Authentication enabled
-- A Google Cloud project with Translate API enabled
-- The LiveLingo backend deployed (see backend repo)
+- Python 3.11+
+- A Google Cloud project with:
+  - Gemini API enabled (or a Google AI Studio API key)
+  - Cloud Translate API enabled
+  - Firebase Authentication enabled
+  - (Optional) Cloud Firestore for usage tracking
 
-### Setup
+### Backend Setup
+
+1. **Navigate to the backend directory**
+   ```bash
+   cd backend
+   ```
+
+2. **Create a virtual environment and install dependencies**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate        # Linux/macOS
+   # venv\Scripts\activate         # Windows
+   pip install -r requirements.txt
+   ```
+
+3. **Configure environment variables**
+   ```bash
+   cp .env.example .env
+   ```
+   Edit `.env` and fill in your values:
+   - **For local development (Google AI Studio):**
+     ```
+     GOOGLE_GENAI_USE_VERTEXAI=FALSE
+     GOOGLE_API_KEY=your-gemini-api-key
+     ```
+   - **For production (Vertex AI on Cloud Run):**
+     ```
+     GOOGLE_GENAI_USE_VERTEXAI=TRUE
+     GOOGLE_CLOUD_PROJECT=your-gcp-project-id
+     GOOGLE_CLOUD_LOCATION=us-central1
+     ```
+
+4. **Run the backend locally**
+   ```bash
+   python main.py
+   ```
+   The server starts at `http://localhost:8080`. Health check: `GET /health`.
+
+### Deploy Backend to Cloud Run
+
+```bash
+cd backend
+
+# Build and deploy in one step
+gcloud run deploy livelingo-backend \
+  --source . \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --set-env-vars="GOOGLE_GENAI_USE_VERTEXAI=TRUE"
+```
+
+Cloud Run will auto-build the Dockerfile and deploy. Copy the service URL for the frontend config.
+
+### Frontend Setup
 
 1. **Clone the repo**
    ```bash
-   git clone https://github.com/yourusername/livelingo.git
-   cd livelingo
+   git clone https://github.com/ashishvasant/LiveLingo.git
+   cd LiveLingo
    ```
 
 2. **Firebase config**
    - Copy `android/app/google-services.json.example` to `android/app/google-services.json` and fill in your Firebase project values
    - Add your `ios/Runner/GoogleService-Info.plist` from the Firebase console
-   - Configure Firebase for web in your environment
 
-3. **Set the backend URL**
+3. **Run with your backend URL**
    ```bash
-   flutter run --dart-define=BACKEND_URL=https://your-backend.run.app
-   ```
-
-4. **Run**
-   ```bash
-   flutter run
+   flutter run --dart-define=BACKEND_URL=https://your-backend-url.run.app
    ```
 
 ### Security Notes
 
 - Never commit `google-services.json` or `GoogleService-Info.plist` — they are gitignored
+- Never commit `.env` — only `.env.example` is tracked
 - Run `scripts/validate_repo_hygiene.ps1` before pushing to check for accidentally committed secrets
 - All Firebase web config should use `String.fromEnvironment()` compile-time variables
 

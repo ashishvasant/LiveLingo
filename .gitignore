@@ -2,6 +2,10 @@
 *.class
 *.log
 *.pyc
+*.pyo
+__pycache__/
+venv/
+.venv/
 *.swp
 .DS_Store
 .atom/
@@ -48,6 +52,7 @@ app.*.map.json
 /ios/Runner/GoogleService-Info.plist
 *.env
 *.env.*
+!*.example
 
 # Build artifacts
 /artifacts/

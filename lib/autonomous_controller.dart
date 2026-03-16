@@ -74,6 +74,8 @@ class AutonomousController extends ChangeNotifier {
   final List<int> _streamingAudioBytes = <int>[];
   Timer? _streamingPlaybackTimer;
   bool _streamingAudioPlaying = false;
+  final Set<String> _streamedAssistantAudioMessageIds = <String>{};
+  int? _lastUnnamedStreamingAudioChunkMs;
   final Map<String, _AssistantAudioClip> _assistantAudioByMessageId =
       <String, _AssistantAudioClip>{};
   final List<_AssistantAudioClip> _pendingAssistantAudioClips =
@@ -213,6 +215,8 @@ class AutonomousController extends ChangeNotifier {
     _streamingPlaybackTimer?.cancel();
     _streamingPlaybackTimer = null;
     _streamingAudioPlaying = false;
+    _streamedAssistantAudioMessageIds.clear();
+    _lastUnnamedStreamingAudioChunkMs = null;
     backendRecentEvents = <Map<String, dynamic>>[];
     nativeMicChunkCount = 0;
     uploadedAudioFrameCount = 0;
@@ -354,6 +358,8 @@ class AutonomousController extends ChangeNotifier {
       _streamingPlaybackTimer?.cancel();
       _streamingPlaybackTimer = null;
       _streamingAudioPlaying = false;
+      _streamedAssistantAudioMessageIds.clear();
+      _lastUnnamedStreamingAudioChunkMs = null;
       liveConnected = false;
       paused = false;
       micStreaming = false;
@@ -396,6 +402,12 @@ class AutonomousController extends ChangeNotifier {
     disconnectMessage = error.toString();
     activePrompt = null;
     _pendingAssistantAudioClips.clear();
+    _streamingAudioBytes.clear();
+    _streamingPlaybackTimer?.cancel();
+    _streamingPlaybackTimer = null;
+    _streamingAudioPlaying = false;
+    _streamedAssistantAudioMessageIds.clear();
+    _lastUnnamedStreamingAudioChunkMs = null;
     await _stopMicrophoneStream();
     await _stopVideoContextStreaming();
     await _recordDiagnostic('socket_error', <String, dynamic>{
@@ -454,6 +466,22 @@ class AutonomousController extends ChangeNotifier {
         }
         final String chunkBase64 = payload['audio_base64'] as String? ?? '';
         if (chunkBase64.isNotEmpty && !paused) {
+          final String chunkMessageId =
+              (payload['for_message_id'] as String? ??
+                      payload['message_id'] as String? ??
+                      '')
+                  .trim();
+          if (chunkMessageId.isNotEmpty) {
+            _streamedAssistantAudioMessageIds.add(chunkMessageId);
+            while (_streamedAssistantAudioMessageIds.length > 64) {
+              _streamedAssistantAudioMessageIds.remove(
+                _streamedAssistantAudioMessageIds.first,
+              );
+            }
+          } else {
+            _lastUnnamedStreamingAudioChunkMs =
+                DateTime.now().millisecondsSinceEpoch;
+          }
           final Uint8List pcmBytes = base64Decode(chunkBase64);
           _streamingAudioBytes.addAll(pcmBytes);
           // Start playback after accumulating ~0.3s of audio (24kHz, 16-bit mono = 48000 bytes/s)
@@ -500,6 +528,18 @@ class AutonomousController extends ChangeNotifier {
           final String targetMessageId = linkedMessageId.trim().isNotEmpty
               ? linkedMessageId.trim()
               : fallbackMessageId;
+          final bool replayAlreadyStreamed =
+              isReplay &&
+              ((targetMessageId.isNotEmpty &&
+                      _streamedAssistantAudioMessageIds.remove(
+                        targetMessageId,
+                      )) ||
+                  (_lastUnnamedStreamingAudioChunkMs != null &&
+                      DateTime.now().millisecondsSinceEpoch -
+                              _lastUnnamedStreamingAudioChunkMs! <=
+                          2500) ||
+                  _streamingAudioPlaying ||
+                  _streamingAudioBytes.isNotEmpty);
           if (targetMessageId.isNotEmpty) {
             _storeAssistantAudioClip(targetMessageId, clip);
           } else {
@@ -511,16 +551,19 @@ class AutonomousController extends ChangeNotifier {
               );
             }
           }
-        }
-        // Only auto-play if NOT a replay-only message (streaming handled by assistant_audio_chunk)
-        if (audioBase64.isNotEmpty && !paused && !isReplay && !manualAudioOnly) {
-          unawaited(
-            _playAssistantAudio(
-              audioBase64: audioBase64,
-              mimeType: mimeType,
-              messageId: payload['message_id'] as String? ?? _uuid.v4(),
-            ),
-          );
+          if (audioBase64.isNotEmpty &&
+              !paused &&
+              !manualAudioOnly &&
+              !replayAlreadyStreamed) {
+            unawaited(
+              _playAssistantAudio(
+                audioBase64: audioBase64,
+                mimeType: mimeType,
+                messageId: payload['message_id'] as String? ?? _uuid.v4(),
+              ),
+            );
+          }
+          _lastUnnamedStreamingAudioChunkMs = null;
         }
         break;
       case 'live_warning':
