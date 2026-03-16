@@ -142,10 +142,12 @@ class _AutonomousHomePageState extends State<AutonomousHomePage> {
   late final TextEditingController _taskController;
   late final TextEditingController _placeLanguageController;
   late final TextEditingController _messageController;
+  bool _manualAudioOnly = false;
 
   @override
   void initState() {
     super.initState();
+    widget.controller.setManualAudioOnly(_manualAudioOnly);
     _taskController = TextEditingController(
       text: widget.controller.currentTask,
     );
@@ -157,6 +159,7 @@ class _AutonomousHomePageState extends State<AutonomousHomePage> {
 
   @override
   void dispose() {
+    widget.controller.setManualAudioOnly(false);
     _taskController.dispose();
     _placeLanguageController.dispose();
     _messageController.dispose();
@@ -221,6 +224,13 @@ class _AutonomousHomePageState extends State<AutonomousHomePage> {
     );
   }
 
+  void _toggleInteractionMode() {
+    setState(() {
+      _manualAudioOnly = !_manualAudioOnly;
+    });
+    widget.controller.setManualAudioOnly(_manualAudioOnly);
+  }
+
   @override
   Widget build(BuildContext context) {
     final AutonomousController controller = widget.controller;
@@ -247,14 +257,27 @@ class _AutonomousHomePageState extends State<AutonomousHomePage> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            const Text('Autonomous Assistant'),
+            const Text('LiveLingo Assistant'),
             Text(
-              controller.connectionStatus,
+              _manualAudioOnly
+                  ? '${controller.connectionStatus} • Manual audio'
+                  : controller.connectionStatus,
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
         ),
         actions: <Widget>[
+          IconButton(
+            tooltip: _manualAudioOnly
+                ? 'Switch to audible mode'
+                : 'Switch to manual mode',
+            onPressed: _toggleInteractionMode,
+            icon: Icon(
+              _manualAudioOnly
+                  ? Icons.record_voice_over_rounded
+                  : Icons.translate_rounded,
+            ),
+          ),
           IconButton(
             tooltip: 'Settings',
             onPressed: () {

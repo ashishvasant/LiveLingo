@@ -48,3 +48,6 @@ app.*.map.json
 /ios/Runner/GoogleService-Info.plist
 *.env
 *.env.*
+
+# Build artifacts
+/artifacts/

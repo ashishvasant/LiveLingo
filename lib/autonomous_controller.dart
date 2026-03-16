@@ -49,6 +49,7 @@ class AutonomousController extends ChangeNotifier {
   bool sessionStopping = false;
   bool liveConnected = false;
   bool paused = false;
+  bool manualAudioOnly = false;
   bool micStreaming = false;
   String connectionStatus = 'Idle';
   String currentTask = '';
@@ -176,6 +177,13 @@ class AutonomousController extends ChangeNotifier {
       await _database.clearDiagnostics();
     }
     notifyListeners();
+  }
+
+  void setManualAudioOnly(bool value) {
+    if (manualAudioOnly == value) {
+      return;
+    }
+    manualAudioOnly = value;
   }
 
   Future<void> startSession({
@@ -441,6 +449,9 @@ class AutonomousController extends ChangeNotifier {
         }
         break;
       case 'assistant_audio_chunk':
+        if (manualAudioOnly) {
+          break;
+        }
         final String chunkBase64 = payload['audio_base64'] as String? ?? '';
         if (chunkBase64.isNotEmpty && !paused) {
           final Uint8List pcmBytes = base64Decode(chunkBase64);
@@ -460,6 +471,12 @@ class AutonomousController extends ChangeNotifier {
         }
         break;
       case 'assistant_audio_end':
+        if (manualAudioOnly) {
+          _streamingPlaybackTimer?.cancel();
+          _streamingPlaybackTimer = null;
+          _streamingAudioBytes.clear();
+          break;
+        }
         _streamingPlaybackTimer?.cancel();
         _streamingPlaybackTimer = null;
         // If streaming playback hasn't started yet, play whatever we have
@@ -496,7 +513,7 @@ class AutonomousController extends ChangeNotifier {
           }
         }
         // Only auto-play if NOT a replay-only message (streaming handled by assistant_audio_chunk)
-        if (audioBase64.isNotEmpty && !paused && !isReplay) {
+        if (audioBase64.isNotEmpty && !paused && !isReplay && !manualAudioOnly) {
           unawaited(
             _playAssistantAudio(
               audioBase64: audioBase64,
