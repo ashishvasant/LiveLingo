@@ -66,7 +66,7 @@ class AppSettings {
 
   factory AppSettings.defaults() {
     return AppSettings(
-      backendUrl: 'YOUR_BACKEND_URL',
+      backendUrl: const String.fromEnvironment('BACKEND_URL', defaultValue: 'http://localhost:8080'),
       authToken: '',
       userLanguage: 'English',
       targetLanguage: 'Kannada',

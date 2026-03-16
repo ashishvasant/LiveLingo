@@ -8,7 +8,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application
-        android:label="talking_learning"
+        android:label="LiveLingo"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <service

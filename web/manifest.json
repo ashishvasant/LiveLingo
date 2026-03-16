@@ -1,6 +1,6 @@
 {
-    "name": "talking_learning",
-    "short_name": "talking_learning",
+    "name": "LiveLingo",
+    "short_name": "LiveLingo",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
